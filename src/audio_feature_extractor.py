@@ -22,7 +22,14 @@ class TimeSeriesData:
     def load_audio_file(cls, path, sr=None):
         data, sr = librosa.load(path, sr=sr, res_type='soxr_vhq')
         return cls(data, sr)
-
+    
+    def resample(self, target_sr):
+        if self.sr == target_sr:
+            return copy.deepcopy(self)
+        
+        resampled_data = librosa.resample(self.data, orig_sr=self.sr, target_sr=target_sr, res_type='soxr_vhq')
+        return __class__(resampled_data, target_sr)
+    
     @classmethod
     def superimpose(cls, signal, noise, snr_db):
         
@@ -52,7 +59,6 @@ class TimeSeriesData:
             adjusted_noise_data  = adjusted_noise_data / max_abs
         
         return cls(adjusted_noisy_data, signal.sr), cls(adjusted_signal_data, signal.sr), cls(adjusted_noise_data, signal.sr)
-
 
     def plot(self, ax=None, duration=None, **kwargs):
         
@@ -84,5 +90,14 @@ class TimeSeriesData:
         ax.set_title('Time-Series Waveform')
 
         return ax
+    
+
+
+
+
+    
+    
+
+
     
     
