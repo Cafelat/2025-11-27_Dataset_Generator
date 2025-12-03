@@ -1,6 +1,7 @@
 import copy
 from dataclasses import dataclass
 import datetime
+from fractions import Fraction
 from typing import Union, Type
 import warnings
 
@@ -347,7 +348,7 @@ class DBSpectrogram:
 
         # カラーバーを設定
         divider = make_axes_locatable(ax)
-        cax = divider.append_axes("right", size="2%", pad=0.05)
+        cax = divider.append_axes("right", size="1.5%", pad=0.05)
         cbar = plt.colorbar(ax.images[0], cax=cax, orientation='vertical')
         cbar.update_ticks()
 
@@ -399,6 +400,63 @@ class PhaseSpectrogram:
         phase_data = np.angle(complex_spec.data)
         return cls(phase_data, complex_spec.sr, complex_spec.stft_params)
     
+    def plot(self, ax=None, **kwargs):
+        
+        ax = ax or plt.gca()
+        img = ax.imshow(self.data, aspect='equal', origin='lower', cmap='twilight', vmin=-np.pi, vmax=np.pi, **kwargs)
+
+        @FuncFormatter
+        def radian_formatter(x, pos):
+            frac = Fraction(x / np.pi).limit_denominator(8)
+            n, d = frac.numerator, frac.denominator
+
+            if x == 0:
+                return "0"
+            sign = "-" if n < 0 else ""
+            n = abs(n)
+
+            if d == 1:
+                if n == 1:
+                    return rf"${sign}\pi$"
+                else:
+                    return rf"${sign}{n}\pi$"
+            else:
+                if n == 1:
+                    return rf"${sign}\frac{{\pi}}{{{d}}}$"
+                else:
+                    return rf"${sign}\frac{{{n}\pi}}{{{d}}}$"
+
+        # カラーバーを設定
+        divider = make_axes_locatable(ax)
+        cax = divider.append_axes("right", size="1.5%", pad=0.05)
+        cbar = plt.colorbar(ax.images[0], cax=cax, orientation='vertical')
+        cbar.set_ticks([-np.pi, -np.pi/2, 0, np.pi/2, np.pi])
+        cbar.formatter = FuncFormatter(radian_formatter)
+        cbar.update_ticks()
+
+        # y軸の設定 
+        frequency_labels = librosa.fft_frequencies(sr=self.sr, n_fft=self.stft_params.n_fft)                # y軸の周波数
+        frequency_ticks = ticker.AutoLocator().tick_values(frequency_labels.min(), frequency_labels.max())  # 取得したい周波数目盛り
+        if frequency_ticks[-1] > frequency_labels.max():                                                    # 最大値を超える場合は置き換え
+            frequency_ticks[-1] = frequency_labels.max()
+        frequency_indices = np.searchsorted(frequency_labels, frequency_ticks)                              # 取得したい目盛りをインデックス番号に変換
+        ax.yaxis.set_major_locator(ticker.FixedLocator(frequency_indices))                                  # y軸の目盛り位置を設定
+        ax.yaxis.set_major_formatter(FuncFormatter(lambda x, pos: f"{int(frequency_labels[int(x)])}"))      # インデックス番号から周波数に変換
+
+        # x軸の設定
+        time_labels = librosa.frames_to_time(np.arange(self.data.shape[1]), sr=self.sr, hop_length=self.stft_params.hop_length)  # x軸の時間
+        time_ticks = ticker.AutoLocator().tick_values(time_labels.min(), time_labels.max())[:-1]                                 # 取得したい時間目盛り
+        time_indices = np.searchsorted(time_labels, time_ticks)                                                                  # 取得したい目盛りをインデックス番号に変換
+        ax.xaxis.set_major_locator(ticker.FixedLocator(time_indices))                                                            # x軸の目盛り位置を設定
+        ax.xaxis.set_major_formatter(FuncFormatter(
+            lambda x, pos: f"{str(datetime.timedelta(seconds=round(librosa.frames_to_time(x, sr=self.sr, hop_length=self.stft_params.hop_length))))}"
+        )) # フレーム番号（インデックス）からフレームの最初の時刻に変換
+
+        ax.set_xlabel("Time (s)")
+        ax.set_ylabel("Frequency (Hz)")
+        ax.set_title("Phase (radians)")
+
+        return ax
 
 
 class SpectrogramVisualizer:
