@@ -1,10 +1,14 @@
 import copy
 from dataclasses import dataclass
+import datetime
 from typing import Union, Type
 import warnings
 
 import librosa
 import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
+from matplotlib.ticker import FuncFormatter
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 import numpy as np
 import scipy
 
@@ -95,7 +99,6 @@ class TimeSeriesData:
         return ax
     
 
-
 @dataclass(frozen=True)
 class STFTParameters:
     n_fft: int = 512
@@ -113,14 +116,14 @@ class STFTParameters:
         elif self.win_length > self.n_fft:
             raise ValueError("win_length cannot be greater than n_fft.")
         
-        if isinstance(self._window, str):
-            window = librosa.filters.get_window(self._window, self._win_length, fftbins=True)
-        elif isinstance(self._window, (list, tuple)):
-            window = scipy.signal.get_window(self._window, self._win_length, fftbins=True)
-        elif isinstance(self._window, function):
-            window = self._window(self._win_length)
-        elif isinstance(self._window, np.ndarray):
-            window = self._window
+        if isinstance(self.window, str):
+            window = librosa.filters.get_window(self.window, self.win_length, fftbins=True)
+        elif isinstance(self.window, (list, tuple)):
+            window = scipy.signal.get_window(self.window, self.win_length, fftbins=True)
+        elif isinstance(self.window, function):
+            window = self.window(self.win_length)
+        elif isinstance(self.window, np.ndarray):
+            window = self.window
 
         mean_window = np.mean(window)               # 窓の平均値
         l2_norm_window = np.linalg.norm(window)     # 窓のL2ノルム(ユークリッド距離, エネルギー)の平方根
@@ -337,6 +340,41 @@ class DBSpectrogram:
         db_data = power_to_db(power_spec.data, ref=power_spec.stft_params.ref)
         return cls(db_data, power_spec.sr, power_spec.stft_params)
     
+    def plot(self, ax=None, **kwargs):
+        
+        ax = ax or plt.gca()
+        img = ax.imshow(self.data, aspect='equal', origin='lower', cmap='magma', vmin=-128, vmax=0, **kwargs)
+
+        # カラーバーを設定
+        divider = make_axes_locatable(ax)
+        cax = divider.append_axes("right", size="2%", pad=0.05)
+        cbar = plt.colorbar(ax.images[0], cax=cax, orientation='vertical')
+        cbar.update_ticks()
+
+        # y軸の設定 
+        frequency_labels = librosa.fft_frequencies(sr=self.sr, n_fft=self.stft_params.n_fft)                # y軸の周波数
+        frequency_ticks = ticker.AutoLocator().tick_values(frequency_labels.min(), frequency_labels.max())  # 取得したい周波数目盛り
+        if frequency_ticks[-1] > frequency_labels.max():                                                    # 最大値を超える場合は置き換え
+            frequency_ticks[-1] = frequency_labels.max()
+        frequency_indices = np.searchsorted(frequency_labels, frequency_ticks)                              # 取得したい目盛りをインデックス番号に変換
+        ax.yaxis.set_major_locator(ticker.FixedLocator(frequency_indices))                                  # y軸の目盛り位置を設定
+        ax.yaxis.set_major_formatter(FuncFormatter(lambda x, pos: f"{int(frequency_labels[int(x)])}"))      # インデックス番号から周波数に変換
+
+        # x軸の設定
+        time_labels = librosa.frames_to_time(np.arange(self.data.shape[1]), sr=self.sr, hop_length=self.stft_params.hop_length)  # x軸の時間
+        time_ticks = ticker.AutoLocator().tick_values(time_labels.min(), time_labels.max())[:-1]                                 # 取得したい時間目盛り
+        time_indices = np.searchsorted(time_labels, time_ticks)                                                                  # 取得したい目盛りをインデックス番号に変換
+        ax.xaxis.set_major_locator(ticker.FixedLocator(time_indices))                                                            # x軸の目盛り位置を設定
+        ax.xaxis.set_major_formatter(FuncFormatter(
+            lambda x, pos: f"{str(datetime.timedelta(seconds=round(librosa.frames_to_time(x, sr=self.sr, hop_length=self.stft_params.hop_length))))}"
+        )) # フレーム番号（インデックス）からフレームの最初の時刻に変換
+
+        ax.set_xlabel("Time (s)")
+        ax.set_ylabel("Frequency (Hz)")
+        ax.set_title("Magnitude (dB)")
+
+        return ax
+
 
 class PhaseSpectrogram:
     def __init__(self, data: np.ndarray, sr: int, stft_params: Type[STFTParameters]):
@@ -367,6 +405,5 @@ class SpectrogramVisualizer:
     pass
 
 
-    
 
     
