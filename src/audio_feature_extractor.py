@@ -199,6 +199,16 @@ class ComplexSpectrogram:
         complex_data = amplitude_and_phase_to_complex(amplitude_data, phase_spec.data)
         return cls(complex_data, power_spec.sr, power_spec.stft_params)
     
+    def to_time_series_data(self) -> Type[TimeSeriesData]:
+        istft_data = librosa.istft(
+            self.data,
+            hop_length=self.stft_params.hop_length,
+            win_length=self.stft_params.win_length,
+            window=self.stft_params.window,
+            center=self.stft_params.center,
+        )
+        return TimeSeriesData(istft_data, self.sr)
+    
     @classmethod
     def from_db_and_phase(cls, db_spec: Type['DBSpectrogram'], phase_spec: Type['PhaseSpectrogram']):
         if db_spec.sr != phase_spec.sr:
@@ -245,6 +255,17 @@ class AmplitudeSpectrogram:
         amplitude_data = power_to_amplitude(power_data)
         return cls(amplitude_data, db_spec.sr, db_spec.stft_params)
     
+    def to_time_series_data(self) -> Type[TimeSeriesData]:
+        warnings.warn("Reconstruction from amplitude spectrogram using Griffin-Lim algorithm may produce artifacts.", UserWarning, stacklevel=2)
+        data = librosa.griffinlim(
+            S=self.data,
+            n_iter=32,
+            hop_length=self.stft_params.hop_length,
+            win_length=self.stft_params.win_length,
+            window=self.stft_params.window,
+            center=self.stft_params.center,
+        )
+        return TimeSeriesData(data, self.sr)
     
 class PowerSpectrogram:
     def __init__(self, data: np.ndarray, sr: int, stft_params: Type[STFTParameters]):
