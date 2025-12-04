@@ -151,6 +151,18 @@ def power_to_amplitude(power_spec_data: np.ndarray) -> np.ndarray:
 def amplitude_and_phase_to_complex(amplitude_spec_data: np.ndarray, phase_spec_data: np.ndarray) -> np.ndarray:
     return amplitude_spec_data * np.exp(1j * phase_spec_data)
 
+def complex_to_phase(complex_spec_data: np.ndarray) -> np.ndarray:
+    return np.angle(complex_spec_data)
+
+def phase_to_sine(phase_spec_data: np.ndarray) -> np.ndarray:
+    return np.sin(phase_spec_data)
+
+def phase_to_cosine(phase_spec_data: np.ndarray) -> np.ndarray:
+    return np.cos(phase_spec_data)
+
+def sine_and_cosine_to_phase(sine_spec_data: np.ndarray, cosine_spec_data: np.ndarray) -> np.ndarray:
+    return np.arctan2(sine_spec_data, cosine_spec_data)
+
 class ComplexSpectrogram:
     def __init__(self, data, sr, stft_params: STFTParameters):
         self._data = data
@@ -259,16 +271,60 @@ class AmplitudeSpectrogram:
         amplitude_data = power_to_amplitude(power_data)
         return cls(amplitude_data, db_spec.sr, db_spec.stft_params)
     
-    def to_time_series_data(self) -> Type[TimeSeriesData]:
-        warnings.warn("Reconstruction from amplitude spectrogram using Griffin-Lim algorithm may produce artifacts.", UserWarning, stacklevel=2)
-        data = librosa.griffinlim(
-            S=self.data,
-            n_iter=32,
-            hop_length=self.stft_params.hop_length,
-            win_length=self.stft_params.win_length,
-            window=self.stft_params.window,
-            center=self.stft_params.center,
-        )
+    @classmethod
+    def from_time_series_data(cls, ts_data: Type[TimeSeriesData], stft_params: Type[STFTParameters]):
+        complex_spec = ComplexSpectrogram.from_time_series_data(ts_data, stft_params)
+        amplitude_data = complex_to_amplitude(complex_spec.data)
+        return cls(amplitude_data, ts_data.sr, stft_params)
+    
+    def to_time_series_data(self, *args_spectrograms) -> Type[TimeSeriesData]:
+
+        if len(args_spectrograms) == 1 and isinstance(args_spectrograms[0], PhaseSpectrogram):
+            phase_spec = args_spectrograms[0]
+            if self.sr != phase_spec.sr:
+                raise ValueError("Sampling rates of amplitude and phase spectrograms must match.")
+            if self.stft_params != phase_spec.stft_params:
+                raise ValueError("STFT parameters of amplitude and phase spectrograms must match.")
+            
+            complex_data = amplitude_and_phase_to_complex(self.data, phase_spec.data)
+            complex_spec = ComplexSpectrogram(complex_data, self.sr, self.stft_params)
+            return complex_spec.to_time_series_data()
+        
+        elif len(args_spectrograms) == 2 and (
+            (isinstance(args_spectrograms[0], 'SineComponentSpectrogram') and isinstance(args_spectrograms[1], 'CosineComponentSpectrogram')) or \
+            (isinstance(args_spectrograms[0], 'CosineComponentSpectrogram') and isinstance(args_spectrograms[1], 'SineComponentSpectrogram'))
+        ):
+            if isinstance(args_spectrograms[0], 'SineComponentSpectrogram'):
+                sine_spec = args_spectrograms[0]
+                cosine_spec = args_spectrograms[1]
+            else:
+                sine_spec = args_spectrograms[1]
+                cosine_spec = args_spectrograms[0]
+            
+            if self.sr != sine_spec.sr or self.sr != cosine_spec.sr:
+                raise ValueError("Sampling rates of amplitude, sine, and cosine spectrograms must match.")
+            if self.stft_params != sine_spec.stft_params or self.stft_params != cosine_spec.stft_params:
+                raise ValueError("STFT parameters of amplitude, sine, and cosine spectrograms must match.")
+            
+            phase_data = sine_and_cosine_to_phase(sine_spec.data, cosine_spec.data)
+            complex_data = amplitude_and_phase_to_complex(self.data, phase_data)
+            complex_spec = ComplexSpectrogram(complex_data, self.sr, self.stft_params)
+            return complex_spec.to_time_series_data()
+        
+        elif len(args_spectrograms) == 0:
+            warnings.warn("Reconstruction from amplitude spectrogram using Griffin-Lim algorithm may produce artifacts.", UserWarning, stacklevel=2)
+            data = librosa.griffinlim(
+                S=self.data,
+                n_iter=32,
+                hop_length=self.stft_params.hop_length,
+                win_length=self.stft_params.win_length,
+                window=self.stft_params.window,
+                center=self.stft_params.center,
+            )
+
+        else:
+            raise ValueError("Invalid arguments for time series reconstruction.")
+        
         return TimeSeriesData(data, self.sr)
     
 class PowerSpectrogram:
@@ -304,6 +360,58 @@ class PowerSpectrogram:
     def from_db_spectrogram(cls, db_spec: Type['DBSpectrogram']):
         power_data = db_to_power(db_spec.data, ref=db_spec.stft_params.ref)
         return cls(power_data, db_spec.sr, db_spec.stft_params)
+    
+    @classmethod
+    def from_time_series_data(cls, ts_data: Type[TimeSeriesData], stft_params: Type[STFTParameters]):
+        complex_spec = ComplexSpectrogram.from_time_series_data(ts_data, stft_params)
+        amplitude_data = complex_to_amplitude(complex_spec.data)
+        power_data = amplitude_to_power(amplitude_data)
+        return cls(power_data, ts_data.sr, stft_params)
+    
+    def to_time_series_data(self, *args_spectrograms) -> Type[TimeSeriesData]:
+
+        if len(args_spectrograms) == 1 and isinstance(args_spectrograms[0], PhaseSpectrogram):
+            phase_spec = args_spectrograms[0]
+            if self.sr != phase_spec.sr:
+                raise ValueError("Sampling rates of power and phase spectrograms must match.")
+            if self.stft_params != phase_spec.stft_params:
+                raise ValueError("STFT parameters of power and phase spectrograms must match.")
+            
+            amplitude_data = power_to_amplitude(self.data)
+            complex_data = amplitude_and_phase_to_complex(amplitude_data, phase_spec.data)
+            complex_spec = ComplexSpectrogram(complex_data, self.sr, self.stft_params)
+            return complex_spec.to_time_series_data()
+        
+        elif len(args_spectrograms) == 2 and (
+            (isinstance(args_spectrograms[0], 'SineComponentSpectrogram') and isinstance(args_spectrograms[1], 'CosineComponentSpectrogram')) or \
+            (isinstance(args_spectrograms[0], 'CosineComponentSpectrogram') and isinstance(args_spectrograms[1], 'SineComponentSpectrogram'))
+        ):
+            if isinstance(args_spectrograms[0], 'SineComponentSpectrogram'):
+                sine_spec = args_spectrograms[0]
+                cosine_spec = args_spectrograms[1]
+            else:
+                sine_spec = args_spectrograms[1]
+                cosine_spec = args_spectrograms[0]
+            
+            if self.sr != sine_spec.sr or self.sr != cosine_spec.sr:
+                raise ValueError("Sampling rates of power, sine, and cosine spectrograms must match.")
+            if self.stft_params != sine_spec.stft_params or self.stft_params != cosine_spec.stft_params:
+                raise ValueError("STFT parameters of power, sine, and cosine spectrograms must match.")
+            
+            amplitude_data = power_to_amplitude(self.data)
+            phase_data = sine_and_cosine_to_phase(sine_spec.data, cosine_spec.data)
+            complex_data = amplitude_and_phase_to_complex(amplitude_data, phase_data)
+            complex_spec = ComplexSpectrogram(complex_data, self.sr, self.stft_params)
+            return complex_spec.to_time_series_data()
+        
+        elif len(args_spectrograms) == 0:
+            warnings.warn("Reconstruction from power spectrogram using Griffin-Lim algorithm may produce artifacts.", UserWarning, stacklevel=2)
+            amplitude_data = power_to_amplitude(self.data)
+            amplitude_spec = AmplitudeSpectrogram(amplitude_data, self.sr, self.stft_params)
+            return amplitude_spec.to_time_series_data()
+    
+        else:
+            raise ValueError("Invalid arguments for time series reconstruction.")
     
 class DBSpectrogram:
     def __init__(self, data: np.ndarray, sr: int, stft_params: Type[STFTParameters]):
@@ -341,6 +449,61 @@ class DBSpectrogram:
         db_data = power_to_db(power_spec.data, ref=power_spec.stft_params.ref)
         return cls(db_data, power_spec.sr, power_spec.stft_params)
     
+    @classmethod
+    def from_time_series_data(cls, ts_data: Type[TimeSeriesData], stft_params: Type[STFTParameters]):
+        complex_spec = ComplexSpectrogram.from_time_series_data(ts_data, stft_params)
+        amplitude_data = complex_to_amplitude(complex_spec.data)
+        power_data = amplitude_to_power(amplitude_data)
+        db_data = power_to_db(power_data, ref=stft_params.ref)
+        return cls(db_data, ts_data.sr, stft_params)
+    
+    def to_time_series_data(self, *args_spectrograms):
+        if len(args_spectrograms) == 1 and isinstance(args_spectrograms[0], PhaseSpectrogram):
+            phase_spec = args_spectrograms[0]
+            if self.sr != phase_spec.sr:
+                raise ValueError("Sampling rates of dB and phase spectrograms must match.")
+            if self.stft_params != phase_spec.stft_params:
+                raise ValueError("STFT parameters of dB and phase spectrograms must match.")
+            
+            power_data = db_to_power(self.data, ref=self.stft_params.ref)
+            amplitude_data = power_to_amplitude(power_data)
+            complex_data = amplitude_and_phase_to_complex(amplitude_data, phase_spec.data)
+            complex_spec = ComplexSpectrogram(complex_data, self.sr, self.stft_params)
+            return complex_spec.to_time_series_data()
+        
+        elif len(args_spectrograms) == 2 and (
+            (isinstance(args_spectrograms[0], 'SineComponentSpectrogram') and isinstance(args_spectrograms[1], 'CosineComponentSpectrogram')) or \
+            (isinstance(args_spectrograms[0], 'CosineComponentSpectrogram') and isinstance(args_spectrograms[1], 'SineComponentSpectrogram'))
+        ):
+            if isinstance(args_spectrograms[0], 'SineComponentSpectrogram'):
+                sine_spec = args_spectrograms[0]
+                cosine_spec = args_spectrograms[1]
+            else:
+                sine_spec = args_spectrograms[1]
+                cosine_spec = args_spectrograms[0]
+            
+            if self.sr != sine_spec.sr or self.sr != cosine_spec.sr:
+                raise ValueError("Sampling rates of dB, sine, and cosine spectrograms must match.")
+            if self.stft_params != sine_spec.stft_params or self.stft_params != cosine_spec.stft_params:
+                raise ValueError("STFT parameters of dB, sine, and cosine spectrograms must match.")
+            
+            power_data = db_to_power(self.data, ref=self.stft_params.ref)
+            amplitude_data = power_to_amplitude(power_data)
+            phase_data = sine_and_cosine_to_phase(sine_spec.data, cosine_spec.data)
+            complex_data = amplitude_and_phase_to_complex(amplitude_data, phase_data)
+            complex_spec = ComplexSpectrogram(complex_data, self.sr, self.stft_params)
+            return complex_spec.to_time_series_data()
+        
+        elif len(args_spectrograms) == 0:
+            warnings.warn("Reconstruction from dB spectrogram using Griffin-Lim algorithm may produce artifacts.", UserWarning, stacklevel=2)
+            power_data = db_to_power(self.data, ref=self.stft_params.ref)
+            amplitude_data = power_to_amplitude(power_data)
+            amplitude_spec = AmplitudeSpectrogram(amplitude_data, self.sr, self.stft_params)
+            return amplitude_spec.to_time_series_data()
+        
+        else:
+            raise ValueError("Invalid arguments for time series reconstruction.")
+
     def plot(self, ax=None, **kwargs):
         
         ax = ax or plt.gca()
@@ -400,6 +563,62 @@ class PhaseSpectrogram:
         phase_data = np.angle(complex_spec.data)
         return cls(phase_data, complex_spec.sr, complex_spec.stft_params)
     
+    @classmethod
+    def from_sine_and_cosine(cls, sine_spec: Type['SineComponentSpectrogram'], cosine_spec: Type['CosineComponentSpectrogram']):
+        if sine_spec.sr != cosine_spec.sr:
+            raise ValueError("Sampling rates of sine and cosine spectrograms must match.")
+        if sine_spec.stft_params != cosine_spec.stft_params:
+            raise ValueError("STFT parameters of sine and cosine spectrograms must match.")
+        
+        phase_data = sine_and_cosine_to_phase(sine_spec.data, cosine_spec.data)
+        return cls(phase_data, sine_spec.sr, sine_spec.stft_params)
+    
+    @classmethod
+    def from_time_series_data(cls, ts_data: Type[TimeSeriesData], stft_params: Type[STFTParameters]):
+        complex_spec = ComplexSpectrogram.from_time_series_data(ts_data, stft_params)
+        phase_data = np.angle(complex_spec.data)
+        return cls(phase_data, ts_data.sr, stft_params)
+    
+    def to_time_series_data(self, *args_spectrograms) -> Type[TimeSeriesData]:
+        if len(args_spectrograms) == 1 and isinstance(args_spectrograms[0], AmplitudeSpectrogram):
+            amplitude_spec = args_spectrograms[0]
+            if self.sr != amplitude_spec.sr:
+                raise ValueError("Sampling rates of phase and amplitude spectrograms must match.")
+            if self.stft_params != amplitude_spec.stft_params:
+                raise ValueError("STFT parameters of phase and amplitude spectrograms must match.")
+            
+            complex_data = amplitude_and_phase_to_complex(amplitude_spec.data, self.data)
+            complex_spec = ComplexSpectrogram(complex_data, self.sr, self.stft_params)
+            return complex_spec.to_time_series_data()
+        
+        elif len(args_spectrograms) == 1 and isinstance(args_spectrograms[0], PowerSpectrogram):
+            power_spec = args_spectrograms[0]
+            if self.sr != power_spec.sr:
+                raise ValueError("Sampling rates of phase and power spectrograms must match.")
+            if self.stft_params != power_spec.stft_params:
+                raise ValueError("STFT parameters of phase and power spectrograms must match.")
+            
+            amplitude_data = power_to_amplitude(power_spec.data)
+            complex_data = amplitude_and_phase_to_complex(amplitude_data, self.data)
+            complex_spec = ComplexSpectrogram(complex_data, self.sr, self.stft_params)
+            return complex_spec.to_time_series_data()
+        
+        elif len(args_spectrograms) == 1 and isinstance(args_spectrograms[0], DBSpectrogram):
+            db_spec = args_spectrograms[0]
+            if self.sr != db_spec.sr:
+                raise ValueError("Sampling rates of phase and dB spectrograms must match.")
+            if self.stft_params != db_spec.stft_params:
+                raise ValueError("STFT parameters of phase and dB spectrograms must match.")
+            
+            power_data = db_to_power(db_spec.data, ref=db_spec.stft_params.ref)
+            amplitude_data = power_to_amplitude(power_data)
+            complex_data = amplitude_and_phase_to_complex(amplitude_data, self.data)
+            complex_spec = ComplexSpectrogram(complex_data, self.sr, self.stft_params)
+            return complex_spec.to_time_series_data()
+        
+        else:
+            raise ValueError("Invalid arguments for time series reconstruction.")
+    
     def plot(self, ax=None, **kwargs):
         
         ax = ax or plt.gca()
@@ -457,7 +676,156 @@ class PhaseSpectrogram:
         ax.set_title("Phase (radians)")
 
         return ax
+    
+class SineComponentSpectrogram:
+    def __init__(self, data: np.ndarray, sr: int, stft_params: Type[STFTParameters]):
+        self._data = data
+        self._sr = sr
+        self._stft_params = stft_params
+    
+    @property
+    def data(self):
+        return self._data
+    
+    @property
+    def sr(self):
+        return self._sr
+    
+    @property
+    def stft_params(self):
+        return self._stft_params
+    
+    @classmethod
+    def from_phase_spectrogram(cls, phase_spec: Type[PhaseSpectrogram]):
+        sine_data = phase_to_sine(phase_spec.data)
+        return cls(sine_data, phase_spec.sr, phase_spec.stft_params)
+    
+    @classmethod
+    def from_complex_spectrogram(cls, complex_spec: Type[ComplexSpectrogram]):
+        phase_data = complex_to_phase(complex_spec.data)
+        sine_data = phase_to_sine(phase_data)
+        return cls(sine_data, complex_spec.sr, complex_spec.stft_params)
+    
+    @classmethod
+    def from_time_series_data(cls, ts_data: Type[TimeSeriesData], stft_params: Type[STFTParameters]):
+        complex_spec = ComplexSpectrogram.from_time_series_data(ts_data, stft_params)
+        phase_data = complex_to_phase(complex_spec.data)
+        sine_data = phase_to_sine(phase_data)
+        return cls(sine_data, ts_data.sr, stft_params)
 
+    def to_time_series_data(self, *args_spectrograms):
+        if len(args_spectrograms) == 2 and (
+            (isinstance(args_spectrograms[0], 'CosineComponentSpectrogram') and (isinstance(args_spectrograms[1], AmplitudeSpectrogram) or isinstance(args_spectrograms[1], PowerSpectrogram) or isinstance(args_spectrograms, DBSpectrogram))) or \
+            (isinstance(args_spectrograms[1], 'CosineComponentSpectrogram') and (isinstance(args_spectrograms[0], AmplitudeSpectrogram) or isinstance(args_spectrograms[0], PowerSpectrogram) or isinstance(args_spectrograms, DBSpectrogram)))
+        ):
+            if isinstance(args_spectrograms[0], 'CosineComponentSpectrogram'):
+                cosine_spec = args_spectrograms[0]
+                other_spec = args_spectrograms[1]
+            else:
+                cosine_spec = args_spectrograms[1]
+                other_spec = args_spectrograms[0]
+            
+            if self.sr != cosine_spec.sr:
+                raise ValueError("Sampling rates of sine and cosine spectrograms must match.")
+            if self.stft_params != cosine_spec.stft_params:
+                raise ValueError("STFT parameters of sine and cosine spectrograms must match.")
+            
+            phase_data = sine_and_cosine_to_phase(self.data, cosine_spec.data)
+            
+            if isinstance(other_spec, AmplitudeSpectrogram):
+                amplitude_data = other_spec.data
+            elif isinstance(other_spec, PowerSpectrogram):
+                amplitude_data = power_to_amplitude(other_spec.data)
+            elif isinstance(other_spec, DBSpectrogram):
+                power_data = db_to_power(other_spec.data, ref=other_spec.stft_params.ref)
+                amplitude_data = power_to_amplitude(power_data)
+            else:
+                raise ValueError("Invalid spectrogram type for reconstruction.")
+            
+            complex_data = amplitude_and_phase_to_complex(amplitude_data, phase_data)
+            complex_spec = ComplexSpectrogram(complex_data, self.sr, self.stft_params)
+            return complex_spec.to_time_series_data()
+
+        else:
+            raise ValueError("Invalid arguments for time series reconstruction.")
+
+class CosineComponentSpectrogram:
+    def __init__(self, data: np.ndarray, sr: int, stft_params: Type[STFTParameters]):
+        self._data = data
+        self._sr = sr
+        self._stft_params = stft_params
+    
+    @property
+    def data(self):
+        return self._data
+    
+    @property
+    def sr(self):
+        return self._sr
+    
+    @property
+    def stft_params(self):
+        return self._stft_params
+    
+    @classmethod
+    def from_phase_spectrogram(cls, phase_spec: Type[PhaseSpectrogram]):
+        cosine_data = phase_to_cosine(phase_spec.data)
+        return cls(cosine_data, phase_spec.sr, phase_spec.stft_params)
+    
+    @classmethod
+    def from_complex_spectrogram(cls, complex_spec: Type[ComplexSpectrogram]):
+        phase_data = complex_to_phase(complex_spec.data)
+        cosine_data = phase_to_cosine(phase_data)
+        return cls(cosine_data, complex_spec.sr, complex_spec.stft_params)
+    
+    @classmethod
+    def from_time_series_data(cls, ts_data: Type[TimeSeriesData], stft_params: Type[STFTParameters]):
+        complex_spec = ComplexSpectrogram.from_time_series_data(ts_data, stft_params)
+        phase_data = complex_to_phase(complex_spec.data)
+        cosine_data = phase_to_cosine(phase_data)
+        return cls(cosine_data, ts_data.sr, stft_params)
+    
+    def to_time_series_data(self, *args_spectrograms):
+        if len(args_spectrograms) == 2 and (
+            (isinstance(args_spectrograms[0], 'SineComponentSpectrogram') and (isinstance(args_spectrograms[1], AmplitudeSpectrogram) or isinstance(args_spectrograms[1], PowerSpectrogram) or isinstance(args_spectrograms, DBSpectrogram))) or \
+            (isinstance(args_spectrograms[1], 'SineComponentSpectrogram') and (isinstance(args_spectrograms[0], AmplitudeSpectrogram) or isinstance(args_spectrograms[0], PowerSpectrogram) or isinstance(args_spectrograms, DBSpectrogram)))
+        ):
+            if isinstance(args_spectrograms[0], 'SineComponentSpectrogram'):
+                sine_spec = args_spectrograms[0]
+                other_spec = args_spectrograms[1]
+            else:
+                sine_spec = args_spectrograms[1]
+                other_spec = args_spectrograms[0]
+            
+            if self.sr != sine_spec.sr:
+                raise ValueError("Sampling rates of sine and cosine spectrograms must match.")
+            if self.stft_params != sine_spec.stft_params:
+                raise ValueError("STFT parameters of sine and cosine spectrograms must match.")
+            
+            phase_data = sine_and_cosine_to_phase(sine_spec.data, self.data)
+            
+            if isinstance(other_spec, AmplitudeSpectrogram):
+                amplitude_data = other_spec.data
+            elif isinstance(other_spec, PowerSpectrogram):
+                amplitude_data = power_to_amplitude(other_spec.data)
+            elif isinstance(other_spec, DBSpectrogram):
+                power_data = db_to_power(other_spec.data, ref=other_spec.stft_params.ref)
+                amplitude_data = power_to_amplitude(power_data)
+            else:
+                raise ValueError("Invalid spectrogram type for reconstruction.")
+            
+            complex_data = amplitude_and_phase_to_complex(amplitude_data, phase_data)
+            complex_spec = ComplexSpectrogram(complex_data, self.sr, self.stft_params)
+            return complex_spec.to_time_series_data()
+
+        else:
+            raise ValueError("Invalid arguments for time series reconstruction.")
+
+class RealPartSpectrogram:
+    pass
+
+class ImaginaryPartSpectrogram:
+    pass
 
 class SpectrogramVisualizer:
     pass
