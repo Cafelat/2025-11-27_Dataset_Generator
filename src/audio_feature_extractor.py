@@ -163,6 +163,15 @@ def phase_to_cosine(phase_spec_data: np.ndarray) -> np.ndarray:
 def sine_and_cosine_to_phase(sine_spec_data: np.ndarray, cosine_spec_data: np.ndarray) -> np.ndarray:
     return np.arctan2(sine_spec_data, cosine_spec_data)
 
+def complex_to_real(complex_spec_data: np.ndarray) -> np.ndarray:
+    return np.real(complex_spec_data)
+
+def complex_to_imaginary(complex_spec_data: np.ndarray) -> np.ndarray:
+    return np.imag(complex_spec_data)
+
+def real_and_imaginary_to_complex(real_spec_data: np.ndarray, imaginary_spec_data: np.ndarray) -> np.ndarray:
+    return real_spec_data + 1j * imaginary_spec_data
+
 class ComplexSpectrogram:
     def __init__(self, data, sr, stft_params: STFTParameters):
         self._data = data
@@ -822,10 +831,93 @@ class CosineComponentSpectrogram:
             raise ValueError("Invalid arguments for time series reconstruction.")
 
 class RealPartSpectrogram:
-    pass
+    def __init__(self, data, sr, stft_params: Type[STFTParameters]):
+        self._data = data
+        self._sr = sr
+        self._stft_params = stft_params
+
+    @property
+    def data(self):
+        return self._data
+    
+    @property
+    def sr(self):
+        return self._sr
+    
+    @property
+    def stft_params(self):
+        return self._stft_params
+    
+    @classmethod
+    def from_complex_spectrogram(cls, complex_spec: Type[ComplexSpectrogram]):
+        real_data = complex_to_real(complex_spec.data)
+        return cls(real_data, complex_spec.sr, complex_spec.stft_params)
+
+    @classmethod
+    def from_time_series_data(cls, ts_data: Type[TimeSeriesData], stft_params: Type[STFTParameters]):
+        complex_spec = ComplexSpectrogram.from_time_series_data(ts_data, stft_params)
+        real_data = complex_to_real(complex_spec.data)
+        return cls(real_data, ts_data.sr, stft_params)
+    
+    def to_time_series_data(self, *args_spectrograms):
+        if len(args_spectrograms) == 1 and isinstance(args_spectrograms[0], ImaginaryPartSpectrogram):
+            imaginary_spec = args_spectrograms[0]
+            if self.sr != imaginary_spec.sr:
+                raise ValueError("Sampling rates of real and imaginary part spectrograms must match.")
+            if self.stft_params != imaginary_spec.stft_params:
+                raise ValueError("STFT parameters of real and imaginary part spectrograms must match.")
+            
+            complex_data = real_and_imaginary_to_complex(self.data, imaginary_spec.data)
+            complex_spec = ComplexSpectrogram(complex_data, self.sr, self.stft_params)
+            return complex_spec.to_time_series_data()
+        
+        else:
+            raise ValueError("Invalid arguments for time series reconstruction.")
 
 class ImaginaryPartSpectrogram:
-    pass
+    def __init__(self, data, sr, stft_params: Type[STFTParameters]):
+        self._data = data
+        self._sr = sr
+        self._stft_params = stft_params
+
+    @property
+    def data(self):
+        return self._data
+    
+    @property
+    def sr(self):
+        return self._sr
+    
+    @property
+    def stft_params(self):
+        return self._stft_params
+    
+    @classmethod
+    def from_complex_spectrogram(cls, complex_spec: Type[ComplexSpectrogram]):
+        imaginary_data = complex_to_imaginary(complex_spec.data)
+        return cls(imaginary_data, complex_spec.sr, complex_spec.stft_params)
+    
+    @classmethod
+    def from_time_series_data(cls, ts_data: Type[TimeSeriesData], stft_params: Type[STFTParameters]):
+        complex_spec = ComplexSpectrogram.from_time_series_data(ts_data, stft_params)
+        imaginary_data = complex_to_imaginary(complex_spec.data)
+        return cls(imaginary_data, ts_data.sr, stft_params)
+    
+    def to_time_series_data(self, *args_spectrograms):
+        if len(args_spectrograms) == 1 and isinstance(args_spectrograms[0], RealPartSpectrogram):
+            real_spec = args_spectrograms[0]
+            if self.sr != real_spec.sr:
+                raise ValueError("Sampling rates of imaginary and real part spectrograms must match.")
+            if self.stft_params != real_spec.stft_params:
+                raise ValueError("STFT parameters of imaginary and real part spectrograms must match.")
+            
+            complex_data = real_and_imaginary_to_complex(real_spec.data, self.data)
+            complex_spec = ComplexSpectrogram(complex_data, self.sr, self.stft_params)
+            return complex_spec.to_time_series_data()
+        
+        else:
+            raise ValueError("Invalid arguments for time series reconstruction.")
+    
 
 class SpectrogramVisualizer:
     pass
