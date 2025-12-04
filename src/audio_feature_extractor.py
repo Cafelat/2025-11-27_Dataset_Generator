@@ -5,6 +5,7 @@ from fractions import Fraction
 from typing import Union, Type
 import warnings
 
+import cv2
 import librosa
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
@@ -140,10 +141,10 @@ def amplitude_to_power(amplitude_spec_data: np.ndarray) -> np.ndarray:
     return amplitude_spec_data ** 2
 
 def power_to_db(power_spec_data: np.ndarray, ref: float) -> np.ndarray:
-    return librosa.power_to_db(power_spec_data, ref=ref)
+    return librosa.power_to_db(power_spec_data, ref=ref**2)
 
 def db_to_power(db_spec_data: np.ndarray, ref: float) -> np.ndarray:
-    return librosa.db_to_power(db_spec_data, ref=ref)
+    return librosa.db_to_power(db_spec_data, ref=ref**2)
 
 def power_to_amplitude(power_spec_data: np.ndarray) -> np.ndarray:
     return np.sqrt(power_spec_data)
@@ -245,6 +246,7 @@ class ComplexSpectrogram:
         amplitude_data = power_to_amplitude(power_data)
         complex_data = amplitude_and_phase_to_complex(amplitude_data, phase_spec.data)
         return cls(complex_data, db_spec.sr, db_spec.stft_params)
+    
 
 class AmplitudeSpectrogram:
     def __init__(self, data, sr, stft_params: Type[STFTParameters]):
@@ -336,6 +338,40 @@ class AmplitudeSpectrogram:
         
         return TimeSeriesData(data, self.sr)
     
+    def plot(self, ax=None, **kwargs):
+        
+        ax = ax or plt.gca()
+        img = ax.imshow(self.data, aspect='equal', origin='lower', cmap='magma', **kwargs)
+
+        # カラーバーを設定
+        divider = make_axes_locatable(ax)
+        cax = divider.append_axes("right", size="1.5%", pad=0.05)
+        cbar = plt.colorbar(ax.images[0], cax=cax, orientation='vertical')
+        cbar.update_ticks()
+
+        # y軸の設定 
+        frequency_labels = librosa.fft_frequencies(sr=self.sr, n_fft=self.stft_params.n_fft)                # y軸の周波数
+        frequency_ticks = ticker.AutoLocator().tick_values(frequency_labels.min(), frequency_labels.max())  # 取得したい周波数目盛り
+        if frequency_ticks[-1] > frequency_labels.max():                                                    # 最大値を超える場合は置き換え
+            frequency_ticks[-1] = frequency_labels.max()
+        frequency_indices = np.searchsorted(frequency_labels, frequency_ticks)                              # 取得したい目盛りをインデックス番号に変換
+        ax.yaxis.set_major_locator(ticker.FixedLocator(frequency_indices))                                  # y軸の目盛り位置を設定
+        ax.yaxis.set_major_formatter(FuncFormatter(lambda x, pos: f"{int(frequency_labels[int(x)])}"))      # インデックス番号から周波数に変換
+
+        # x軸の設定
+        time_labels = librosa.frames_to_time(np.arange(self.data.shape[1]), sr=self.sr, hop_length=self.stft_params.hop_length)  # x軸の時間
+        time_ticks = ticker.AutoLocator().tick_values(time_labels.min(), time_labels.max())[:-1]                                 # 取得したい時間目盛り
+        time_indices = np.searchsorted(time_labels, time_ticks)                                                                  # 取得したい目盛りをインデックス番号に変換
+        ax.xaxis.set_major_locator(ticker.FixedLocator(time_indices))                                                            # x軸の目盛り位置を設定
+        ax.xaxis.set_major_formatter(FuncFormatter(
+            lambda x, pos: f"{str(datetime.timedelta(seconds=round(librosa.frames_to_time(x, sr=self.sr, hop_length=self.stft_params.hop_length))))}"
+        )) # フレーム番号（インデックス）からフレームの最初の時刻に変換
+        
+        ax.set_xlabel("Time (s)")
+        ax.set_ylabel("Frequency (Hz)")
+        ax.set_title("Amplitude Spectrogram")
+        return ax
+    
 class PowerSpectrogram:
     def __init__(self, data: np.ndarray, sr: int, stft_params: Type[STFTParameters]):
         self._data = data
@@ -421,6 +457,41 @@ class PowerSpectrogram:
     
         else:
             raise ValueError("Invalid arguments for time series reconstruction.")
+        
+    def plot(self, ax=None, **kwargs):
+        
+        ax = ax or plt.gca()
+        img = ax.imshow(self.data, aspect='equal', origin='lower', cmap='magma', **kwargs)
+
+        # カラーバーを設定
+        divider = make_axes_locatable(ax)
+        cax = divider.append_axes("right", size="1.5%", pad=0.05)
+        cbar = plt.colorbar(ax.images[0], cax=cax, orientation='vertical')
+        cbar.update_ticks()
+
+        # y軸の設定 
+        frequency_labels = librosa.fft_frequencies(sr=self.sr, n_fft=self.stft_params.n_fft)                # y軸の周波数
+        frequency_ticks = ticker.AutoLocator().tick_values(frequency_labels.min(), frequency_labels.max())  # 取得したい周波数目盛り
+        if frequency_ticks[-1] > frequency_labels.max():                                                    # 最大値を超える場合は置き換え
+            frequency_ticks[-1] = frequency_labels.max()
+        frequency_indices = np.searchsorted(frequency_labels, frequency_ticks)                              # 取得したい目盛りをインデックス番号に変換
+        ax.yaxis.set_major_locator(ticker.FixedLocator(frequency_indices))                                  # y軸の目盛り位置を設定
+        ax.yaxis.set_major_formatter(FuncFormatter(lambda x, pos: f"{int(frequency_labels[int(x)])}"))      # インデックス番号から周波数に変換
+
+        # x軸の設定
+        time_labels = librosa.frames_to_time(np.arange(self.data.shape[1]), sr=self.sr, hop_length=self.stft_params.hop_length)  # x軸の時間
+        time_ticks = ticker.AutoLocator().tick_values(time_labels.min(), time_labels.max())[:-1]                                 # 取得したい時間目盛り
+        time_indices = np.searchsorted(time_labels, time_ticks)                                                                  # 取得したい目盛りをインデックス番号に変換
+        ax.xaxis.set_major_locator(ticker.FixedLocator(time_indices))                                                            # x軸の目盛り位置を設定
+        ax.xaxis.set_major_formatter(FuncFormatter(
+            lambda x, pos: f"{str(datetime.timedelta(seconds=round(librosa.frames_to_time(x, sr=self.sr, hop_length=self.stft_params.hop_length))))}"
+        ))  # インデックス番号から時間に変換
+
+        ax.set_xlabel('Time')
+        ax.set_ylabel('Frequency (Hz)')
+        ax.set_title('Power Spectrogram')
+        
+        return ax
     
 class DBSpectrogram:
     def __init__(self, data: np.ndarray, sr: int, stft_params: Type[STFTParameters]):
@@ -873,6 +944,39 @@ class RealPartSpectrogram:
         
         else:
             raise ValueError("Invalid arguments for time series reconstruction.")
+        
+    def plot(self, ax=None, **kwargs):
+        ax = ax or plt.gca()
+        img = ax.imshow(self.data, aspect='equal', origin='lower', cmap='magma', **kwargs)
+
+        # カラーバーを設定
+        divider = make_axes_locatable(ax)
+        cax = divider.append_axes("right", size="1.5%", pad=0.05)
+        cbar = plt.colorbar(ax.images[0], cax=cax, orientation='vertical')
+        cbar.update_ticks()
+
+        # y軸の設定 
+        frequency_labels = librosa.fft_frequencies(sr=self.sr, n_fft=self.stft_params.n_fft)                # y軸の周波数
+        frequency_ticks = ticker.AutoLocator().tick_values(frequency_labels.min(), frequency_labels.max())  # 取得したい周波数目盛り
+        if frequency_ticks[-1] > frequency_labels.max():                                                    # 最大値を超える場合は置き換え
+            frequency_ticks[-1] = frequency_labels.max()
+        frequency_indices = np.searchsorted(frequency_labels, frequency_ticks)                              # 取得したい目盛りをインデックス番号に変換
+        ax.yaxis.set_major_locator(ticker.FixedLocator(frequency_indices))                                  # y軸の目盛り位置を設定
+        ax.yaxis.set_major_formatter(FuncFormatter(lambda x, pos: f"{int(frequency_labels[int(x)])}"))      # インデックス番号から周波数に変換
+
+        # x軸の設定
+        time_labels = librosa.frames_to_time(np.arange(self.data.shape[1]), sr=self.sr, hop_length=self.stft_params.hop_length)  # x軸の時間
+        time_ticks = ticker.AutoLocator().tick_values(time_labels.min(), time_labels.max())[:-1]                                 # 取得したい時間目盛り
+        time_indices = np.searchsorted(time_labels, time_ticks)                                                                  # 取得したい目盛りをインデックス番号に変換
+        ax.xaxis.set_major_locator(ticker.FixedLocator(time_indices))                                                            # x軸の目盛り位置を設定
+        ax.xaxis.set_major_formatter(FuncFormatter(
+            lambda x, pos: f"{str(datetime.timedelta(seconds=round(librosa.frames_to_time(x, sr=self.sr, hop_length=self.stft_params.hop_length))))}"
+        ))  # インデックス番号から時間に変換
+        
+        ax.set_xlabel('Time')
+        ax.set_ylabel('Frequency (Hz)')
+        ax.set_title('Real Part Spectrogram')
+        return ax
 
 class ImaginaryPartSpectrogram:
     def __init__(self, data, sr, stft_params: Type[STFTParameters]):
@@ -918,9 +1022,154 @@ class ImaginaryPartSpectrogram:
         else:
             raise ValueError("Invalid arguments for time series reconstruction.")
     
+    def plot(self, ax=None, **kwargs):
+        ax = ax or plt.gca()
+        img = ax.imshow(self.data, aspect='equal', origin='lower', cmap='magma', **kwargs)
+
+        # カラーバーを設定
+        divider = make_axes_locatable(ax)
+        cax = divider.append_axes("right", size="1.5%", pad=0.05)
+        cbar = plt.colorbar(ax.images[0], cax=cax, orientation='vertical')
+        cbar.update_ticks()
+
+        # y軸の設定 
+        frequency_labels = librosa.fft_frequencies(sr=self.sr, n_fft=self.stft_params.n_fft)                # y軸の周波数
+        frequency_ticks = ticker.AutoLocator().tick_values(frequency_labels.min(), frequency_labels.max())  # 取得したい周波数目盛り
+        if frequency_ticks[-1] > frequency_labels.max():                                                    # 最大値を超える場合は置き換え
+            frequency_ticks[-1] = frequency_labels.max()
+        frequency_indices = np.searchsorted(frequency_labels, frequency_ticks)                              # 取得したい目盛りをインデックス番号に変換
+        ax.yaxis.set_major_locator(ticker.FixedLocator(frequency_indices))                                  # y軸の目盛り位置を設定
+        ax.yaxis.set_major_formatter(FuncFormatter(lambda x, pos: f"{int(frequency_labels[int(x)])}"))      # インデックス番号から周波数に変換
+
+        # x軸の設定
+        time_labels = librosa.frames_to_time(np.arange(self.data.shape[1]), sr=self.sr, hop_length=self.stft_params.hop_length)  # x軸の時間
+        time_ticks = ticker.AutoLocator().tick_values(time_labels.min(), time_labels.max())[:-1]                                 # 取得したい時間目盛り
+        time_indices = np.searchsorted(time_labels, time_ticks)                                                                  # 取得したい目盛りをインデックス番号に変換
+        ax.xaxis.set_major_locator(ticker.FixedLocator(time_indices))                                                            # x軸の目盛り位置を設定
+        ax.xaxis.set_major_formatter(FuncFormatter(
+            lambda x, pos: f"{str(datetime.timedelta(seconds=round(librosa.frames_to_time(x, sr=self.sr, hop_length=self.stft_params.hop_length))))}"
+        ))  # インデックス番号から時間に変換
+
+        ax.set_xlabel('Time')
+        ax.set_ylabel('Frequency (Hz)')
+        ax.set_title('Imaginary Part Spectrogram')
+        return ax
+    
 
 class SpectrogramVisualizer:
-    pass
+    @staticmethod
+    def plot_DB_and_phase(db_spec: Type[DBSpectrogram], phase_spec: Type[PhaseSpectrogram], graph_ax=None, color_ax=None, **kwargs):
+        if phase_spec.sr != db_spec.sr:
+            raise ValueError("Sampling rates of phase and dB spectrograms must match.")
+        if phase_spec.stft_params != db_spec.stft_params:
+            raise ValueError("STFT parameters of phase and dB spectrograms must match.")
+        if phase_spec.data.shape != db_spec.data.shape:
+            raise ValueError("Shapes of phase and dB spectrograms must match.")
+        
+        phase_data = phase_spec.data.copy()
+        db_data = db_spec.data.copy()
+
+        hue = (phase_data + np.pi) / (2 * np.pi) * 179  # 0-179に正規化
+        saturation = (db_data -(-128)) / (0 - (-128)) * 255  # 0-255に正規化
+        value = (db_data -(-128)) / (0 - (-128)) * 255  # 0-255に正規化
+
+        hsv_image = np.stack((hue, saturation, value), axis=-1).astype(np.uint8)
+        bgr_image = cv2.cvtColor(hsv_image, cv2.COLOR_HSV2BGR)
+        rgb_image = cv2.cvtColor(bgr_image, cv2.COLOR_BGR2RGB)
+
+        graph_ax = graph_ax or plt.gca()
+        img = graph_ax.imshow(rgb_image, aspect='equal', origin='lower', **kwargs)
+
+        # y軸の設定
+        frequency_labels = librosa.fft_frequencies(sr=phase_spec.sr, n_fft=phase_spec.stft_params.n_fft)                # y軸の周波数
+        frequency_ticks = ticker.AutoLocator().tick_values(frequency_labels.min(), frequency_labels.max())
+        if frequency_ticks[-1] > frequency_labels.max():                                                    # 最大値を超える場合は置き換え
+            frequency_ticks[-1] = frequency_labels.max()
+        frequency_indices = np.searchsorted(frequency_labels, frequency_ticks)                              # 取得したい目盛りをインデックス番号に変換
+        graph_ax.yaxis.set_major_locator(ticker.FixedLocator(frequency_indices))                                  # y
+        graph_ax.yaxis.set_major_formatter(FuncFormatter(lambda x, pos: f"{int(frequency_labels[int(x)])}"))      # インデックス番号から周波数に変換
+
+        # x軸の設定
+        time_labels = librosa.frames_to_time(np.arange(phase_spec.data.shape[1]), sr=phase_spec.sr, hop_length=phase_spec.stft_params.hop_length)  # x軸の時間
+        time_ticks = ticker.AutoLocator().tick_values(time_labels.min(), time_labels.max())[:-1]                                 # 取得したい時間目盛り
+        time_indices = np.searchsorted(time_labels, time_ticks)                                                                  # 取得したい目盛りをインデックス番号に変換
+        graph_ax.xaxis.set_major_locator(ticker.FixedLocator(time_indices))                                                            # x軸の目盛り位置を設定
+        graph_ax.xaxis.set_major_formatter(FuncFormatter(
+            lambda x, pos: f"{str(datetime.timedelta(seconds=round(librosa.frames_to_time(x, sr=phase_spec.sr, hop_length=phase_spec.stft_params.hop_length))))}"
+        ))  # インデックス番号から時間に変換
+        
+        graph_ax.set_xlabel("Time (s)")
+        graph_ax.set_ylabel("Frequency (Hz)")
+        graph_ax.set_title("Phase and Magnitude (dB) Spectrogram")
+
+        # カラーバーの設定
+        divider = make_axes_locatable(graph_ax)
+        color_ax = color_ax or divider.append_axes("right", size="10%", pad=0.3)
+
+        height = phase_spec.data.shape[0]
+        width = phase_spec.data.shape[0]
+
+        # x軸: Hue（0〜180）
+        H = np.linspace(0, 180, width)[None, :].repeat(height, axis=0)
+
+        # y軸: Saturation / Value（0〜255）
+        S = np.linspace(0, 255, height)[:, None].repeat(width, axis=1)
+        V = np.linspace(0, 255, height)[:, None].repeat(width, axis=1)
+
+        # 3チャンネルにまとめる
+        hsv_colorbar = np.stack([H, S, V], axis=-1)  
+        bgr_colorbar = cv2.cvtColor((hsv_colorbar).astype(np.uint8), cv2.COLOR_HSV2BGR)
+        rgb_colorbar = cv2.cvtColor(bgr_colorbar, cv2.COLOR_BGR2RGB)
+
+        color_ax.imshow(rgb_colorbar, aspect='auto', origin='lower')
+        color_ax.yaxis.tick_right()                 # 目盛り（ticks）を右側へ
+        color_ax.yaxis.set_label_position("right")  # ラベルも右へ
+
+        # y軸の設定: dB値
+        db_labels = np.linspace(-128, 0, height)
+        db_ticks = ticker.AutoLocator().tick_values(db_labels.min(), db_labels.max())
+        if db_ticks[0] < db_labels.min():  # 最小値を下回る場合は削除
+            db_ticks = db_ticks[1:]
+        db_indices = np.searchsorted(db_labels, db_ticks)  # 取得したい目盛りをインデックス番号に変換
+        color_ax.yaxis.set_major_locator(ticker.FixedLocator(db_indices))
+        color_ax.yaxis.set_major_formatter(FuncFormatter(lambda x, pos: f"{int(db_labels[int(x)])}"))  # インデックス番号からdBに変換
+
+        # x軸の設定: 位相（ラジアン）
+        def radian_formatter(x, pos):
+            frac = Fraction(x / np.pi).limit_denominator(8)
+            n, d = frac.numerator, frac.denominator
+
+            if x == 0:
+                return "0"
+            sign = "-" if n < 0 else ""
+            n = abs(n)
+
+            if d == 1:
+                if n == 1:
+                    return rf"${sign}\pi$"
+                else:
+                    return rf"${sign}{n}\pi$"
+            else:
+                if n == 1:
+                    return rf"${sign}\frac{{\pi}}{{{d}}}$"
+                else:
+                    return rf"${sign}\frac{{{n}\pi}}{{{d}}}$"
+
+        phase_labels = np.linspace(-np.pi, np.pi, width)
+        phase_ticks = [-np.pi, -np.pi/2, 0, np.pi/2, np.pi]
+        phase_indices = np.searchsorted(phase_labels, phase_ticks)  # 取得したい目盛りをインデックス番号に変換
+        color_ax.xaxis.set_major_locator(ticker.FixedLocator(phase_indices))
+        color_ax.xaxis.set_major_formatter(FuncFormatter(lambda x, pos: radian_formatter(phase_labels[int(x)], pos)))  # インデックス番号からラジアンに変換
+
+        color_ax.set_xlabel("Phase (radians)")
+        color_ax.set_ylabel("Magnitude (dB)")
+
+        return graph_ax, color_ax
+    
+
+
+        
+        
 
 
 
