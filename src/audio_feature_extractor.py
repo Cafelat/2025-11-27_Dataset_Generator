@@ -10,7 +10,7 @@ import librosa
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 from matplotlib.ticker import FuncFormatter
-from mpl_toolkits.axes_grid1 import make_axes_locatable
+from mpl_toolkits.axes_grid1 import make_axes_locatable, Size
 import numpy as np
 import scipy
 
@@ -1058,7 +1058,7 @@ class ImaginaryPartSpectrogram:
 
 class SpectrogramVisualizer:
     @staticmethod
-    def plot_DB_and_phase(db_spec: Type[DBSpectrogram], phase_spec: Type[PhaseSpectrogram], graph_ax=None, color_ax=None, **kwargs):
+    def plot_DB_and_phase(db_spec: Type[DBSpectrogram], phase_spec: Type[PhaseSpectrogram], graph_ax=None, **kwargs):
         if phase_spec.sr != db_spec.sr:
             raise ValueError("Sampling rates of phase and dB spectrograms must match.")
         if phase_spec.stft_params != db_spec.stft_params:
@@ -1078,7 +1078,7 @@ class SpectrogramVisualizer:
         rgb_image = cv2.cvtColor(bgr_image, cv2.COLOR_BGR2RGB)
 
         graph_ax = graph_ax or plt.gca()
-        img = graph_ax.imshow(rgb_image, aspect='equal', origin='lower', **kwargs)
+        graph_img = graph_ax.imshow(rgb_image, aspect='equal', origin='lower', **kwargs)
 
         # y軸の設定
         frequency_labels = librosa.fft_frequencies(sr=phase_spec.sr, n_fft=phase_spec.stft_params.n_fft)                # y軸の周波数
@@ -1104,7 +1104,8 @@ class SpectrogramVisualizer:
 
         # カラーバーの設定
         divider = make_axes_locatable(graph_ax)
-        color_ax = color_ax or divider.append_axes("right", size="10%", pad=0.3)
+        color_ax = divider.append_axes("right", size=divider.get_vertical()[0], pad=0.3)
+        color_ax.set_aspect('equal')
 
         height = phase_spec.data.shape[0]
         width = phase_spec.data.shape[0]
