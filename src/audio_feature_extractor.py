@@ -704,27 +704,6 @@ class PhaseSpectrogram:
         ax = ax or plt.gca()
         img = ax.imshow(self.data, aspect='equal', origin='lower', cmap='twilight', vmin=-np.pi, vmax=np.pi, **kwargs)
 
-        @FuncFormatter
-        def radian_formatter(x, pos):
-            frac = Fraction(x / np.pi).limit_denominator(8)
-            n, d = frac.numerator, frac.denominator
-
-            if x == 0:
-                return "0"
-            sign = "-" if n < 0 else ""
-            n = abs(n)
-
-            if d == 1:
-                if n == 1:
-                    return rf"${sign}\pi$"
-                else:
-                    return rf"${sign}{n}\pi$"
-            else:
-                if n == 1:
-                    return rf"${sign}\frac{{\pi}}{{{d}}}$"
-                else:
-                    return rf"${sign}\frac{{{n}\pi}}{{{d}}}$"
-
         # カラーバーを設定
         divider = make_axes_locatable(ax)
         cax = divider.append_axes("right", size="1.5%", pad=0.05)
@@ -1135,27 +1114,6 @@ class SpectrogramVisualizer:
         color_ax.yaxis.set_major_locator(ticker.FixedLocator(db_indices))
         color_ax.yaxis.set_major_formatter(FuncFormatter(lambda x, pos: f"{int(db_labels[int(x)])}"))  # インデックス番号からdBに変換
 
-        # x軸の設定: 位相（ラジアン）
-        def radian_formatter(x, pos):
-            frac = Fraction(x / np.pi).limit_denominator(8)
-            n, d = frac.numerator, frac.denominator
-
-            if x == 0:
-                return "0"
-            sign = "-" if n < 0 else ""
-            n = abs(n)
-
-            if d == 1:
-                if n == 1:
-                    return rf"${sign}\pi$"
-                else:
-                    return rf"${sign}{n}\pi$"
-            else:
-                if n == 1:
-                    return rf"${sign}\frac{{\pi}}{{{d}}}$"
-                else:
-                    return rf"${sign}\frac{{{n}\pi}}{{{d}}}$"
-
         phase_labels = np.linspace(-np.pi, np.pi, width)
         phase_ticks = [-np.pi, -np.pi/2, 0, np.pi/2, np.pi]
         phase_indices = np.searchsorted(phase_labels, phase_ticks)  # 取得したい目盛りをインデックス番号に変換
@@ -1166,12 +1124,25 @@ class SpectrogramVisualizer:
         color_ax.set_ylabel("Magnitude (dB)")
 
         return graph_ax, color_ax
-    
 
 
-        
-        
+@FuncFormatter
+def radian_formatter(x, pos):
+    frac = Fraction(x / np.pi).limit_denominator(8)
+    n, d = frac.numerator, frac.denominator
 
+    if x == 0:
+        return "0"
+    sign = "-" if n < 0 else ""
+    n = abs(n)
 
-
-    
+    if d == 1:
+        if n == 1:
+            return rf"${sign}\pi$"
+        else:
+            return rf"${sign}{n}\pi$"
+    else:
+        if n == 1:
+            return rf"${sign}\frac{{\pi}}{{{d}}}$"
+        else:
+            return rf"${sign}\frac{{{n}\pi}}{{{d}}}$"
