@@ -1,6 +1,7 @@
 import copy
 from dataclasses import dataclass
 import datetime
+from enum import Enum, auto
 from fractions import Fraction
 from typing import Union, Type
 import warnings
@@ -1146,3 +1147,54 @@ def radian_formatter(x, pos):
             return rf"${sign}\frac{{\pi}}{{{d}}}$"
         else:
             return rf"${sign}\frac{{{n}\pi}}{{{d}}}$"
+
+
+class SpectrogramType(Enum):
+    AMPLITUDE = auto()
+    POWER = auto()
+    DB = auto()
+    PHASE = auto()
+    SINE = auto()
+    COSINE = auto()
+    REAL = auto()
+    IMAGINARY = auto()
+
+class FrequencyBandType(Enum):
+    LOW = auto()
+    HIGH = auto()
+
+@dataclass(frozen=True)
+class PatchSetParameters:
+    spectrogram_types: list[SpectrogramType]
+    size: tuple[int, int] = (256, 256)
+    overlap_rate: float = 0.5
+    frequency_band: FrequencyBandType = FrequencyBandType.LOW
+    padding: bool = False
+
+    def __post_init__(self):
+        if len(self.spectrogram_types) == 0:
+            raise ValueError("At least one spectrogram type must be specified.")
+        elif len(self.spectrogram_types) == 1 and (not set(self.spectrogram_types).isdisjoint({
+            SpectrogramType.PHASE, SpectrogramType.REAL, SpectrogramType.IMAGINARY})):
+            raise ValueError("At least two spectrogram types must be specified when using phase, real, or imaginary spectrograms.")
+        elif len(self.spectrogram_types) == 1 and (self.spectrogram_types[0] == SpectrogramType.SINE or self.spectrogram_types[0] == SpectrogramType.COSINE):
+            raise ValueError("At least three spectrogram types must be specified when using sine and cosine spectrograms.")
+        elif len(self.spectrogram_types) == 2 and (not set(self.spectrogram_types).isdisjoint({SpectrogramType.SINE, SpectrogramType.COSINE})):
+            raise ValueError("At least three spectrogram types must be specified when using sine and cosine spectrograms.")
+        elif len(self.spectrogram_types) == 2 and (len(set(self.spectrogram_types) & {SpectrogramType.REAL, SpectrogramType.IMAGINARY}) == 1):
+            raise ValueError("Both real and imaginary spectrograms must be specified when using either one.")
+        elif len(self.spectrogram_types) == 2 and (len(set(self.spectrogram_types) & {SpectrogramType.PHASE}) == 1) and (len(set(self.spectrogram_types) & {SpectrogramType.AMPLITUDE, SpectrogramType.POWER, SpectrogramType.DB}) == 0):
+            raise ValueError("Phase spectrogram must be used with amplitude, power, or dB spectrograms.")
+        elif len(self.spectrogram_types) == 2 and (len(set(self.spectrogram_types) & {SpectrogramType.DB, SpectrogramType.POWER, SpectrogramType.AMPLITUDE}) == 2):
+            raise ValueError("Only one of amplitude, power, or dB spectrograms can be specified at a time.")
+        elif len(self.spectrogram_types) == 3 and (not set(self.spectrogram_types).isdisjoint({SpectrogramType.SINE, SpectrogramType.COSINE})) and (len(set(self.spectrogram_types) & {SpectrogramType.AMPLITUDE, SpectrogramType.POWER, SpectrogramType.DB}) == 0):
+            raise ValueError("Sine and cosine spectrograms must be used with amplitude, power, or dB spectrograms.")
+        elif len(self.spectrogram_types) >= 4:
+            raise ValueError("A maximum of three spectrogram types can be specified.")
+        elif len(self.spectrogram_types) != len(set(self.spectrogram_types)):
+            raise ValueError("Duplicate spectrogram types are not allowed.") 
+            
+
+class SpectrogramPatchSet:
+    pass
+    
