@@ -1,3 +1,4 @@
+from abc import ABC, abstractmethod
 import copy
 from dataclasses import dataclass
 import datetime
@@ -174,23 +175,43 @@ def complex_to_imaginary(complex_spec_data: np.ndarray) -> np.ndarray:
 def real_and_imaginary_to_complex(real_spec_data: np.ndarray, imaginary_spec_data: np.ndarray) -> np.ndarray:
     return real_spec_data + 1j * imaginary_spec_data
 
-class ComplexSpectrogram:
-    def __init__(self, data, sr, stft_params: STFTParameters):
-        self._data = data
-        self._sr = sr
-        self._stft_params = stft_params
+class SpectrogramType(Enum):
+    COMPLEX = auto()
+    AMPLITUDE = auto()
+    POWER = auto()
+    DB = auto()
+    PHASE = auto()
+    SINE = auto()
+    COSINE = auto()
+    REAL = auto()
+    IMAGINARY = auto()
+
+@dataclass(frozen=True)
+class BaseSpectrogram(ABC):
+    data: np.ndarray
+    sr: int
+    stft_params: Type[STFTParameters]
 
     @property
-    def data(self):
-        return self._data
-    
+    @abstractmethod
+    def type(self):
+        pass
+
+    @classmethod
+    @abstractmethod
+    def from_time_series_data(cls, ts_data: Type[TimeSeriesData], stft_params: Type[STFTParameters]):
+        pass
+
+    # @abstractmethod
+    # def plot(self, ax=None, **kwargs):
+    #     pass
+
+@dataclass(frozen=True)
+class ComplexSpectrogram(BaseSpectrogram):
+
     @property
-    def sr(self):
-        return self._sr
-    
-    @property
-    def stft_params(self):
-        return self._stft_params
+    def type(self):
+        return SpectrogramType.COMPLEX
 
     @classmethod
     def from_time_series_data(cls, ts_data: Type[TimeSeriesData], stft_params: Type[STFTParameters]):
@@ -249,23 +270,11 @@ class ComplexSpectrogram:
         return cls(complex_data, db_spec.sr, db_spec.stft_params)
     
 
-class AmplitudeSpectrogram:
-    def __init__(self, data, sr, stft_params: Type[STFTParameters]):
-        self._data = data
-        self._sr = sr
-        self._stft_params = stft_params
+class AmplitudeSpectrogram(BaseSpectrogram):
 
     @property
-    def data(self):
-        return self._data
-    
-    @property
-    def sr(self):
-        return self._sr
-    
-    @property
-    def stft_params(self):
-        return self._stft_params
+    def type(self):
+        return SpectrogramType.AMPLITUDE
 
     @classmethod
     def from_complex_spectrogram(cls, complex_spec: Type[ComplexSpectrogram]):
@@ -373,23 +382,11 @@ class AmplitudeSpectrogram:
         ax.set_title("Amplitude Spectrogram")
         return ax
     
-class PowerSpectrogram:
-    def __init__(self, data: np.ndarray, sr: int, stft_params: Type[STFTParameters]):
-        self._data = data
-        self._sr = sr
-        self._stft_params = stft_params
+class PowerSpectrogram(BaseSpectrogram):
 
     @property
-    def data(self):
-        return self._data
-
-    @property
-    def sr(self):
-        return self._sr
-
-    @property
-    def stft_params(self):
-        return self._stft_params
+    def type(self):
+        return SpectrogramType.POWER
 
     @classmethod
     def from_complex_spectrogram(cls, complex_spec: Type[ComplexSpectrogram]):
@@ -494,23 +491,11 @@ class PowerSpectrogram:
         
         return ax
     
-class DBSpectrogram:
-    def __init__(self, data: np.ndarray, sr: int, stft_params: Type[STFTParameters]):
-        self._data = data
-        self._sr = sr
-        self._stft_params = stft_params
+class DBSpectrogram(BaseSpectrogram):
 
     @property
-    def data(self):
-        return self._data
-    
-    @property
-    def sr(self):
-        return self._sr
-    
-    @property
-    def stft_params(self):
-        return self._stft_params
+    def type(self):
+        return SpectrogramType.DB
     
     @classmethod
     def from_complex_spectrogram(cls, complex_spec: Type[ComplexSpectrogram]):
@@ -621,23 +606,11 @@ class DBSpectrogram:
         return ax
 
 
-class PhaseSpectrogram:
-    def __init__(self, data: np.ndarray, sr: int, stft_params: Type[STFTParameters]):
-        self._data = data
-        self._sr = sr
-        self._stft_params = stft_params
+class PhaseSpectrogram(BaseSpectrogram):
 
     @property
-    def data(self):
-        return self._data
-    
-    @property
-    def sr(self):
-        return self._sr
-    
-    @property
-    def stft_params(self):
-        return self._stft_params
+    def type(self):
+        return SpectrogramType.PHASE
     
     @classmethod
     def from_complex_spectrogram(cls, complex_spec: Type[ComplexSpectrogram]):
@@ -737,23 +710,11 @@ class PhaseSpectrogram:
 
         return ax
     
-class SineComponentSpectrogram:
-    def __init__(self, data: np.ndarray, sr: int, stft_params: Type[STFTParameters]):
-        self._data = data
-        self._sr = sr
-        self._stft_params = stft_params
-    
+class SineComponentSpectrogram(BaseSpectrogram):
+
     @property
-    def data(self):
-        return self._data
-    
-    @property
-    def sr(self):
-        return self._sr
-    
-    @property
-    def stft_params(self):
-        return self._stft_params
+    def type(self):
+        return SpectrogramType.SINE_COMPONENT
     
     @classmethod
     def from_phase_spectrogram(cls, phase_spec: Type[PhaseSpectrogram]):
@@ -809,23 +770,11 @@ class SineComponentSpectrogram:
         else:
             raise ValueError("Invalid arguments for time series reconstruction.")
 
-class CosineComponentSpectrogram:
-    def __init__(self, data: np.ndarray, sr: int, stft_params: Type[STFTParameters]):
-        self._data = data
-        self._sr = sr
-        self._stft_params = stft_params
-    
+class CosineComponentSpectrogram(BaseSpectrogram):
+
     @property
-    def data(self):
-        return self._data
-    
-    @property
-    def sr(self):
-        return self._sr
-    
-    @property
-    def stft_params(self):
-        return self._stft_params
+    def type(self):
+        return SpectrogramType.COSINE_COMPONENT
     
     @classmethod
     def from_phase_spectrogram(cls, phase_spec: Type[PhaseSpectrogram]):
@@ -881,23 +830,11 @@ class CosineComponentSpectrogram:
         else:
             raise ValueError("Invalid arguments for time series reconstruction.")
 
-class RealPartSpectrogram:
-    def __init__(self, data, sr, stft_params: Type[STFTParameters]):
-        self._data = data
-        self._sr = sr
-        self._stft_params = stft_params
+class RealPartSpectrogram(BaseSpectrogram):
 
     @property
-    def data(self):
-        return self._data
-    
-    @property
-    def sr(self):
-        return self._sr
-    
-    @property
-    def stft_params(self):
-        return self._stft_params
+    def type(self):
+        return SpectrogramType.REAL_PART
     
     @classmethod
     def from_complex_spectrogram(cls, complex_spec: Type[ComplexSpectrogram]):
@@ -958,23 +895,11 @@ class RealPartSpectrogram:
         ax.set_title('Real Part Spectrogram')
         return ax
 
-class ImaginaryPartSpectrogram:
-    def __init__(self, data, sr, stft_params: Type[STFTParameters]):
-        self._data = data
-        self._sr = sr
-        self._stft_params = stft_params
+class ImaginaryPartSpectrogram(BaseSpectrogram):
 
     @property
-    def data(self):
-        return self._data
-    
-    @property
-    def sr(self):
-        return self._sr
-    
-    @property
-    def stft_params(self):
-        return self._stft_params
+    def type(self):
+        return SpectrogramType.IMAGINARY_PART
     
     @classmethod
     def from_complex_spectrogram(cls, complex_spec: Type[ComplexSpectrogram]):
@@ -1035,6 +960,26 @@ class ImaginaryPartSpectrogram:
         ax.set_title('Imaginary Part Spectrogram')
         return ax
     
+class Spectrogram:
+    _registry = {
+        SpectrogramType.COMPLEX: ComplexSpectrogram,
+        SpectrogramType.AMPLITUDE: AmplitudeSpectrogram,
+        SpectrogramType.POWER: PowerSpectrogram,
+        SpectrogramType.DB: DBSpectrogram,
+        SpectrogramType.PHASE: PhaseSpectrogram,
+        SpectrogramType.SINE: SineComponentSpectrogram,
+        SpectrogramType.COSINE: CosineComponentSpectrogram,
+        SpectrogramType.REAL: RealPartSpectrogram,
+        SpectrogramType.IMAGINARY: ImaginaryPartSpectrogram,
+    }
+
+    @classmethod
+    def from_time_series_data(cls, ts_data: Type[TimeSeriesData], stft_params: Type[STFTParameters], spec_type: SpectrogramType):
+        if spec_type not in cls._registry:
+            raise ValueError(f"Unsupported spectrogram type: {spec_type}")
+        spectrogram_class = cls._registry[spec_type]
+        return spectrogram_class.from_time_series_data(ts_data, stft_params)
+
 
 class SpectrogramVisualizer:
     @staticmethod
@@ -1149,16 +1094,6 @@ def radian_formatter(x, pos):
             return rf"${sign}\frac{{{n}\pi}}{{{d}}}$"
 
 
-class SpectrogramType(Enum):
-    AMPLITUDE = auto()
-    POWER = auto()
-    DB = auto()
-    PHASE = auto()
-    SINE = auto()
-    COSINE = auto()
-    REAL = auto()
-    IMAGINARY = auto()
-
 class FrequencyBandType(Enum):
     LOW = auto()
     HIGH = auto()
@@ -1174,6 +1109,8 @@ class PatchSetParameters:
     def __post_init__(self):
         if len(self.spectrogram_types) == 0:
             raise ValueError("At least one spectrogram type must be specified.")
+        elif len(set(self.spectrogram_types) & {SpectrogramType.COMPLEX}) == 1:
+            raise ValueError("Complex spectrogram cannot be used in patch set.")
         elif len(self.spectrogram_types) == 1 and (not set(self.spectrogram_types).isdisjoint({
             SpectrogramType.PHASE, SpectrogramType.REAL, SpectrogramType.IMAGINARY})):
             raise ValueError("At least two spectrogram types must be specified when using phase, real, or imaginary spectrograms.")
@@ -1196,5 +1133,10 @@ class PatchSetParameters:
             
 
 class SpectrogramPatchSet:
-    pass
-    
+    @classmethod
+    def from_spectrograms(cls, spectrograms: list[BaseSpectrogram], params: Type[PatchSetParameters]):
+        for spec, type in zip(spectrograms, params.spectrogram_types):
+            if spec.type != type:
+                raise ValueError(f"Spectrogram type {spec} is not specified in PatchSetParameters.")
+            
+        
