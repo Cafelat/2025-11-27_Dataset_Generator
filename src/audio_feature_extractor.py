@@ -677,7 +677,7 @@ class PhaseSpectrogram(BaseSpectrogram):
     def plot(self, ax=None, **kwargs):
         
         ax = ax or plt.gca()
-        img = ax.imshow(self.data, aspect='equal', origin='lower', cmap='twilight', vmin=-np.pi, vmax=np.pi, **kwargs)
+        img = ax.imshow(self.data, aspect='equal', origin='lower', cmap='hsv', vmin=-np.pi, vmax=np.pi, **kwargs)
 
         # カラーバーを設定
         divider = make_axes_locatable(ax)
@@ -1144,7 +1144,7 @@ class SpectrogramPatchSet:
             if spec.type != type:
                 raise ValueError(f"Spectrogram type {spec} is not specified in PatchSetParameters.")
             
-        data = np.stack([spec.data for spec in spectrograms], axis=-1)
+        sp_data = np.stack([spec.data for spec in spectrograms], axis=-1)
         padding_value = []
         for spec in spectrograms:
             if spec.type == SpectrogramType.DB:
@@ -1152,31 +1152,67 @@ class SpectrogramPatchSet:
             else:
                 padding_value.append(0.0)
 
-        if params.size[0] != data.shape[0] and params.frequency_band == FrequencyBandType.LOW:
-            data = np.delete(data, slice(params.size[0], data.shape[0]), axis=0)
-        elif params.size[0] != data.shape[0] and params.frequency_band == FrequencyBandType.HIGH:
-            data = np.delete(data, slice(0, data.shape[0] - params.size[0]), axis=0)
+        if params.size[0] != sp_data.shape[0] and params.frequency_band == FrequencyBandType.LOW:
+            sp_data = np.delete(sp_data, slice(params.size[0], sp_data.shape[0]), axis=0)
+        elif params.size[0] != sp_data.shape[0] and params.frequency_band == FrequencyBandType.HIGH:
+            sp_data = np.delete(sp_data, slice(0, sp_data.shape[0] - params.size[0]), axis=0)
 
-        array = np.empty((0, params.size[0], params.size[1], data.shape[2]), dtype=data.dtype)
+        data = np.empty((0, params.size[0], params.size[1], sp_data.shape[2]), dtype=sp_data.dtype)
         step  = int(Decimal(str(params.size[1] * params.overlap_rate)).quantize(Decimal('0'), rounding=ROUND_HALF_UP))
-        n = (data.shape[1] - params.size[1]) // (params.size[1] - step) + 1  
+        n = (sp_data.shape[1] - params.size[1]) // (params.size[1] - step) + 1  
 
         if not params.padding and n < 1:
             raise ValueError("Spectrogram is smaller than the specified patch size and padding is disabled.")
         elif params.padding:
             pads = None # パディング用の配列
-            for i in range(data.shape[2]):
+            for i in range(sp_data.shape[2]):
                 # パディング領域の設定
-                pad = np.full((data.shape[0], (params.size[1] + (params.size[1] - step) * n) - data.shape[1], 1), padding_value[i], dtype=data.dtype)
+                pad = np.full((sp_data.shape[0], (params.size[1] + (params.size[1] - step) * n) - sp_data.shape[1], 1), padding_value[i], dtype=sp_data.dtype)
                 pads = pad if pads is None else np.concatenate([pads, pad], axis=2)
-            data = np.concatenate([data, pads], axis=1)
+            sp_data = np.concatenate([sp_data, pads], axis=1)
 
         # 分割
         for i in range(n):
             start = i * (params.size[1] - step)
             end = start + params.size[1]
-            array = np.append(array, [data[:, start:end]], axis=0)
+            data = np.append(data, [sp_data[:, start:end]], axis=0)
         
-        return cls(array, params, spectrograms[0].stft_params)  
+        return cls(data, params, spectrograms[0].stft_params)  
+    
+    def to_spectrograms(self, sr: int):
 
-        
+        step = int(Decimal(str(self.patch_set_params.size[1] * self.patch_set_params.overlap_rate)).quantize(Decimal('0'), rounding=ROUND_HALF_UP))
+        sp_data = np.zeros((self.patch_set_params.size[0], 0, self.data.shape[-1]))
+        overlap_count =  np.zeros((self.patch_set_params.size[0], 0))
+
+        for i in range(self.data.shape[0]):
+            image = self.data[i, :, :, :]
+
+            image_start = (self.patch_set_params.size[1] - step) * i
+            image_end = self.patch_set_params.size[1] + (self.patch_set_params.size[1] - step) * i
+            
+
+            # 適切な位置で各画像の値を加算、各画素の加算回数をカウント
+            if i == 0:
+                sp_data = np.hstack([sp_data, image[:, 0:self.patch_set_params.size[1]]])
+                overlap_count = np.hstack([overlap_count, np.ones((self.patch_set_params.size[0], self.patch_set_params.size[1]))])
+            else:
+                sp_data = np.hstack([sp_data, np.zeros((self.patch_set_params.size[0], self.patch_set_params.size[1] - step, sp_data.shape[-1]))])
+                overlap_count = np.hstack([overlap_count, np.zeros((self.patch_set_params.size[0], self.patch_set_params.size[1] - step))])
+                sp_data[:, image_start:image_end] += image
+                overlap_count[:, image_start:image_end] += np.ones((self.patch_set_params.size[0], self.patch_set_params.size[1]))
+
+        # 重なり部分を平均化, 
+        overlap_count = np.where(overlap_count==0, 1, overlap_count)
+        overlap_count = np.expand_dims(overlap_count, axis=-1)
+        overlap = np.empty((sp_data.shape[0], sp_data.shape[1], 0))
+        for i in range(sp_data.shape[-1]):
+            overlap = np.concatenate([overlap, overlap_count], axis=-1)
+        sp_data = sp_data / overlap
+
+        spectrograms = []
+        for spec_type_idx, spec_type in enumerate(self.patch_set_params.spectrogram_types):
+            spec_data = sp_data[:, :, spec_type_idx]
+            spectrograms.append(Spectrogram._registry[spec_type](spec_data, sr, self.stft_params))
+
+        return spectrograms
