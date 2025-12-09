@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 import copy
 from dataclasses import dataclass
 import datetime
+from decimal import Decimal, ROUND_HALF_UP
 from enum import Enum, auto
 from fractions import Fraction
 from typing import Union, Type
@@ -1131,12 +1132,51 @@ class PatchSetParameters:
         elif len(self.spectrogram_types) != len(set(self.spectrogram_types)):
             raise ValueError("Duplicate spectrogram types are not allowed.") 
             
-
+@dataclass
 class SpectrogramPatchSet:
+    data : np.ndarray
+    patch_set_params: PatchSetParameters
+    stft_params: STFTParameters
+
     @classmethod
     def from_spectrograms(cls, spectrograms: list[BaseSpectrogram], params: Type[PatchSetParameters]):
         for spec, type in zip(spectrograms, params.spectrogram_types):
             if spec.type != type:
                 raise ValueError(f"Spectrogram type {spec} is not specified in PatchSetParameters.")
             
+        data = np.stack([spec.data for spec in spectrograms], axis=-1)
+        padding_value = []
+        for spec in spectrograms:
+            if spec.type == SpectrogramType.DB:
+                padding_value.append(-128.0)
+            else:
+                padding_value.append(0.0)
+
+        if params.size[0] != data.shape[0] and params.frequency_band == FrequencyBandType.LOW:
+            data = np.delete(data, slice(params.size[0], data.shape[0]), axis=0)
+        elif params.size[0] != data.shape[0] and params.frequency_band == FrequencyBandType.HIGH:
+            data = np.delete(data, slice(0, data.shape[0] - params.size[0]), axis=0)
+
+        array = np.empty((0, params.size[0], params.size[1], data.shape[2]), dtype=data.dtype)
+        step  = int(Decimal(str(params.size[1] * params.overlap_rate)).quantize(Decimal('0'), rounding=ROUND_HALF_UP))
+        n = (data.shape[1] - params.size[1]) // (params.size[1] - step) + 1  
+
+        if not params.padding and n < 1:
+            raise ValueError("Spectrogram is smaller than the specified patch size and padding is disabled.")
+        elif params.padding:
+            pads = None # パディング用の配列
+            for i in range(data.shape[2]):
+                # パディング領域の設定
+                pad = np.full((data.shape[0], (params.size[1] + (params.size[1] - step) * n) - data.shape[1], 1), padding_value[i], dtype=data.dtype)
+                pads = pad if pads is None else np.concatenate([pads, pad], axis=2)
+            data = np.concatenate([data, pads], axis=1)
+
+        # 分割
+        for i in range(n):
+            start = i * (params.size[1] - step)
+            end = start + params.size[1]
+            array = np.append(array, [data[:, start:end]], axis=0)
+        
+        return cls(array, params, spectrograms[0].stft_params)  
+
         
