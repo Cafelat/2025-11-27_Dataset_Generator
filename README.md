@@ -10,9 +10,11 @@
 - 学習用データセット作成 etc.
 
 ## Background
-深層学習による雑音除去を目的とした研究で使用しています。
+深層学習による雑音除去を目的とした研究で使用しています。  
+従来レポジトリ：https://github.com/Cafelat/2025-03-14_dataset
 
 ## Tech
 - Python
 - NumPy
 - librosa
+
