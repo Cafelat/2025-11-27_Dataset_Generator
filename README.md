@@ -1,4 +1,4 @@
-# Dataset Generator for Biosignal Denoising
+# Dataset Generator for Denoising Task
 
 ## Overview
 研究で使用する学習用データセットを生成するツールです。
